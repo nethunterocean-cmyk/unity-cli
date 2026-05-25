@@ -107,9 +107,9 @@ Terminal                              Unity Editor
 $ unity-cli editor play --wait
     │
     ├─ scans ~/.unity-cli/instances/*.json
-    │  → finds Unity on port 8090
+    │  → selects the Unity instance for this project
     │
-    ├─ POST http://127.0.0.1:8090/command
+    ├─ sends command to the selected Unity listener
     │  { "command": "manage_editor",
     │    "params": { "action": "play",
     │                "wait_for_completion": true }}
@@ -130,7 +130,7 @@ $ unity-cli editor play --wait
 ```
 
 The Unity Connector:
-1. Opens an HTTP server on `localhost:8090` when the Editor starts
+1. Opens a local HTTP listener when the Editor starts
 2. Writes a per-project instance file to `~/.unity-cli/instances/` so the CLI knows where to connect
 3. Updates the instance file every 0.5s with the current state (heartbeat)
 4. Discovers all `[UnityCliTool]` classes via reflection on each request
@@ -327,7 +327,7 @@ unity-cli my_custom_tool --params '{"key": "value"}'
 ```bash
 # Show Unity Editor state
 unity-cli status
-# Output: Unity (port 8090): ready
+# Output: Unity: ready
 #   Project: /path/to/project
 #   Version: 6000.1.0f1
 #   PID:     12345
@@ -339,19 +339,15 @@ The CLI also checks Unity's state automatically before sending any command. If U
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--port <N>` | Select Unity instance by active heartbeat port | auto |
-| `--project <path>` | Select Unity instance by project path | latest |
+| `--project <path>` | Select Unity instance by project path | auto |
 | `--timeout <ms>` | HTTP request timeout | 120000 |
-| `--ignore-version-mismatch` | Run even when CLI and connector versions differ | false |
+| `--ignore-version-mismatch` | Skip CLI/connector version check | false |
 
 ```bash
-# Select an active Unity instance by heartbeat port
-unity-cli --port 8091 editor play
-
 # Select by project path when multiple Unity instances are open
 unity-cli --project MyGame editor stop
 
-# Run anyway when the installed connector has a different release version
+# Run even when the CLI and connector versions differ
 unity-cli --ignore-version-mismatch status
 ```
 
@@ -450,19 +446,16 @@ unity-cli spawn --params '{"x":1,"y":0,"z":5,"prefab":"Goblin"}'
 
 ## Multiple Unity Instances
 
-When multiple Unity Editors are open, each registers on a different port (8090, 8091, ...):
+When multiple Unity Editors are open, each registers its project path:
 
 ```bash
 # See all running instances
-ls ~/.unity-cli/instances/
+unity-cli status
 
 # Select by project path
 unity-cli --project MyGame editor play
 
-# Select by active heartbeat port
-unity-cli --port 8091 editor play
-
-# Default: uses the most recently registered instance
+# Default: uses the current working directory's Unity project, or the only active instance
 unity-cli editor play
 ```
 
@@ -475,7 +468,7 @@ unity-cli editor play
 | **Protocol** | JSON-RPC 2.0 over stdio + WebSocket | Direct HTTP POST |
 | **Setup** | Generate MCP config, restart AI tool | Add Unity package, done |
 | **Reconnection** | Complex reconnect logic for domain reloads | Stateless per request |
-| **Compatibility** | MCP-compatible clients only | Anything with a shell |
+| **Client support** | MCP client setup only | Anything with a shell |
 | **Custom tools** | Same `[Attribute]` + `HandleCommand` pattern | Same |
 
 ## Author

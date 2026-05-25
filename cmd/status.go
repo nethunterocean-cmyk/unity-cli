@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -13,36 +14,72 @@ type instanceResolver func() (*client.Instance, error)
 
 var statusPollInterval = 500 * time.Millisecond
 
-func statusCmd(inst *client.Instance) error {
-	status, err := readStatus(inst.Port)
+func statusCmd(project string, ignoreVersionMismatch bool) error {
+	instances, err := statusInstances(project)
 	if err != nil {
-		return fmt.Errorf("no status for port %d — Unity may not be running", inst.Port)
+		return err
+	}
+	if len(instances) == 0 {
+		return fmt.Errorf("no Unity instances running")
+	}
+	for i := range instances {
+		if i > 0 {
+			fmt.Println()
+		}
+		printStatus(&instances[i])
+		if err := checkConnectorVersion(&instances[i], Version, ignoreVersionMismatch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statusInstances(project string) ([]client.Instance, error) {
+	instances, err := client.ScanInstances()
+	if err != nil {
+		return nil, fmt.Errorf("no Unity instances found")
 	}
 
+	var result []client.Instance
+	projectNorm := normalizeStatusProjectPath(project)
+	for _, inst := range instances {
+		if inst.Timestamp <= 0 {
+			continue
+		}
+		if projectNorm != "" {
+			instNorm := normalizeStatusProjectPath(inst.ProjectPath)
+			if instNorm != projectNorm && !strings.Contains(instNorm, projectNorm) {
+				continue
+			}
+		}
+		result = append(result, inst)
+	}
+	if project != "" && len(result) == 0 {
+		return nil, fmt.Errorf("no Unity instance found for project: %s", project)
+	}
+	return result, nil
+}
+
+func normalizeStatusProjectPath(path string) string {
+	normalized := strings.TrimRight(strings.ReplaceAll(path, "\\", "/"), "/")
+	if runtime.GOOS == "windows" {
+		normalized = strings.ToLower(normalized)
+	}
+	return normalized
+}
+
+func printStatus(status *client.Instance) {
 	age := time.Since(time.UnixMilli(status.Timestamp))
 	if age > 3*time.Second {
-		fmt.Fprintf(os.Stderr, "Unity (port %d): not responding (last heartbeat %s ago)\n", status.Port, age.Truncate(time.Second))
-		return checkConnectorVersion(status, Version, flagIgnoreVersionMismatch)
+		fmt.Fprintf(os.Stderr, "Unity: not responding (last heartbeat %s ago)\n", age.Truncate(time.Second))
+		return
 	}
 
-	fmt.Printf("Unity (port %d): %s\n", status.Port, status.State)
+	fmt.Printf("Unity: %s\n", status.State)
 	fmt.Printf("  Project: %s\n", status.ProjectPath)
 	fmt.Printf("  Version: %s\n", status.UnityVersion)
 	fmt.Printf("  Connector: %s\n", connectorVersionLabel(status.ConnectorVersion))
 	fmt.Printf("  PID:     %d\n", status.PID)
-	return checkConnectorVersion(status, Version, flagIgnoreVersionMismatch)
-}
-
-func discoverStatusInstance(project string, port int) (*client.Instance, error) {
-	if port > 0 {
-		return client.FindByPort(port)
-	}
-	return client.DiscoverInstance(project, 0)
-}
-
-// readStatus finds the instance file matching the given port (any state).
-func readStatus(port int) (*client.Instance, error) {
-	return client.FindByPort(port)
 }
 
 func connectorVersionLabel(version string) string {
@@ -78,37 +115,6 @@ func normalizeVersion(version string) string {
 	version = strings.TrimPrefix(version, "v")
 	version = strings.TrimPrefix(version, "V")
 	return version
-}
-
-// waitForAlive resolves the current target instance, then polls until a newer heartbeat appears.
-// This keeps following the same project even if Unity rebinds to a new port during reload.
-func waitForAlive(resolve instanceResolver, timeoutMs int) (*client.Instance, error) {
-	baseline := time.Now().UnixMilli()
-	inst, err := resolve()
-	if err == nil {
-		baseline = inst.Timestamp
-		// Already fresh — check if timestamp was updated within the last second
-		if time.Now().UnixMilli()-baseline < 1000 {
-			return inst, nil
-		}
-	}
-
-	fmt.Fprintf(os.Stderr, "Waiting for Unity...\n")
-
-	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
-	for time.Now().Before(deadline) {
-		time.Sleep(statusPollInterval)
-		inst, err = resolve()
-		if err != nil {
-			continue
-		}
-		if inst.Timestamp > baseline {
-			fmt.Fprintf(os.Stderr, "Unity is ready.\n")
-			return inst, nil
-		}
-	}
-
-	return nil, fmt.Errorf("timed out waiting for Unity")
 }
 
 // waitForReady polls indefinitely until the heartbeat state becomes "ready".

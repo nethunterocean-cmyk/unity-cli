@@ -107,9 +107,9 @@ unity-cli console --type error,warning,log
 $ unity-cli editor play --wait
     │
     ├─ ~/.unity-cli/instances/*.json 스캔
-    │  → Unity가 포트 8090에 있음을 확인
+    │  → 현재 프로젝트의 Unity 인스턴스 선택
     │
-    ├─ POST http://127.0.0.1:8090/command
+    ├─ 선택된 Unity listener로 명령 전송
     │  { "command": "manage_editor",
     │    "params": { "action": "play",
     │                "wait_for_completion": true }}
@@ -130,7 +130,7 @@ $ unity-cli editor play --wait
 ```
 
 Unity 커넥터의 동작:
-1. Editor 시작 시 `localhost:8090`에 HTTP 서버를 열고
+1. Editor 시작 시 로컬 HTTP listener를 열고
 2. `~/.unity-cli/instances/`에 프로젝트별 instance 파일을 기록하여 CLI가 연결할 수 있게 하고
 3. 0.5초마다 instance 파일에 현재 상태를 갱신하고 (heartbeat)
 4. 매 요청마다 리플렉션으로 `[UnityCliTool]` 클래스를 탐지하고
@@ -327,7 +327,7 @@ unity-cli my_custom_tool --params '{"key": "value"}'
 ```bash
 # Unity Editor 상태 확인
 unity-cli status
-# 출력: Unity (port 8090): ready
+# 출력: Unity: ready
 #   Project: /path/to/project
 #   Version: 6000.1.0f1
 #   PID:     12345
@@ -339,19 +339,15 @@ unity-cli status
 
 | 플래그 | 설명 | 기본값 |
 |--------|------|--------|
-| `--port <N>` | 활성 heartbeat 포트로 Unity 인스턴스 선택 | auto |
-| `--project <path>` | 프로젝트 경로로 Unity 인스턴스 선택 | latest |
+| `--project <path>` | 프로젝트 경로로 Unity 인스턴스 선택 | auto |
 | `--timeout <ms>` | HTTP 요청 타임아웃 | 120000 |
-| `--ignore-version-mismatch` | CLI와 connector 버전이 달라도 실행 | false |
+| `--ignore-version-mismatch` | CLI/connector 버전 검사 생략 | false |
 
 ```bash
-# 특정 Unity 인스턴스에 연결
-unity-cli --port 8091 editor play
-
 # 여러 Unity 인스턴스 중 프로젝트 경로로 선택
 unity-cli --project MyGame editor stop
 
-# 설치된 connector 릴리스 버전이 달라도 그대로 실행
+# CLI와 connector 버전이 달라도 실행
 unity-cli --ignore-version-mismatch status
 ```
 
@@ -450,19 +446,16 @@ unity-cli spawn --params '{"x":1,"y":0,"z":5,"prefab":"Goblin"}'
 
 ## 여러 Unity 인스턴스
 
-여러 Unity Editor가 열려 있으면, 각각 다른 포트(8090, 8091, ...)에 등록됩니다:
+여러 Unity Editor가 열려 있으면, 각각 프로젝트 경로를 등록합니다:
 
 ```bash
 # 실행 중인 모든 인스턴스 확인
-ls ~/.unity-cli/instances/
+unity-cli status
 
 # 프로젝트 경로로 선택
 unity-cli --project MyGame editor play
 
-# 활성 heartbeat 포트로 선택
-unity-cli --port 8091 editor play
-
-# 기본: 가장 최근 등록된 인스턴스 사용
+# 기본: 현재 작업 디렉터리의 Unity 프로젝트 또는 유일한 활성 인스턴스 사용
 unity-cli editor play
 ```
 

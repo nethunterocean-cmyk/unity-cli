@@ -1,7 +1,13 @@
 package cmd
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
@@ -20,7 +26,7 @@ func TestTestCmd_ForwardsDirtySceneOptions(t *testing.T) {
 		return &client.CommandResponse{Success: true}, nil
 	}
 
-	resp, err := testCmd([]string{"--allow-dirty-scenes", "--auto-save-scenes"}, send, 0)
+	resp, err := testCmd([]string{"--allow-dirty-scenes", "--auto-save-scenes"}, send, nil)
 	if err != nil {
 		t.Fatalf("testCmd returned error: %v", err)
 	}
@@ -32,5 +38,59 @@ func TestTestCmd_ForwardsDirtySceneOptions(t *testing.T) {
 	}
 	if captured["autoSaveScenes"] != true {
 		t.Errorf("autoSaveScenes = %v, want true", captured["autoSaveScenes"])
+	}
+	if captured["runId"] == "" {
+		t.Error("runId should be sent")
+	}
+}
+
+func TestPollTestResultsStopsWhenProjectInstanceDisappears(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	origPollInterval := statusPollInterval
+	statusPollInterval = time.Millisecond
+	t.Cleanup(func() { statusPollInterval = origPollInterval })
+
+	_, err := pollTestResults("missing", func() (*client.Instance, error) {
+		return nil, fmt.Errorf("no Unity instance found for project: /projects/current")
+	})
+	if err == nil {
+		t.Fatal("expected stopped editor error")
+	}
+	if !strings.Contains(err.Error(), "unity editor has stopped") {
+		t.Fatalf("expected stopped editor error, got %v", err)
+	}
+}
+
+func TestTestCmd_PlayModePollsRunIDResult(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	statusDir := filepath.Join(home, ".unity-cli", "status")
+	if err := os.MkdirAll(statusDir, 0755); err != nil {
+		t.Fatalf("failed to create status dir: %v", err)
+	}
+
+	send := func(cmd string, params interface{}) (*client.CommandResponse, error) {
+		captured := params.(map[string]interface{})
+		runID := captured["runId"].(string)
+		resp := client.CommandResponse{Success: true, Message: "done"}
+		data, err := json.Marshal(resp)
+		if err != nil {
+			t.Fatalf("failed to marshal response: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(statusDir, "test-results-"+runID+".json"), data, 0644); err != nil {
+			t.Fatalf("failed to write results: %v", err)
+		}
+		return &client.CommandResponse{Success: true, Message: "running"}, nil
+	}
+
+	resp, err := testCmd([]string{"--mode", "PlayMode"}, send, nil)
+	if err != nil {
+		t.Fatalf("testCmd returned error: %v", err)
+	}
+	if resp.Message != "done" {
+		t.Fatalf("Message = %q, want done", resp.Message)
 	}
 }

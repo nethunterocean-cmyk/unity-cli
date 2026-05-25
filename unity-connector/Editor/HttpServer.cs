@@ -95,7 +95,7 @@ namespace UnityCliConnector
 
                 _ = ListenLoop(listener, cts);
 
-                Debug.Log($"[UnityCliConnector] HTTP server started on port {port}");
+                Debug.Log("[UnityCliConnector] HTTP server started");
                 return true;
             }
             catch (HttpListenerException)
@@ -110,7 +110,7 @@ namespace UnityCliConnector
             catch (Exception ex)
             {
                 ScheduleRetry();
-                LogStartFailure($"[UnityCliConnector] Failed to start HTTP server on port {port}: {ex.Message}", true);
+                LogStartFailure($"[UnityCliConnector] Failed to start HTTP server: {ex.Message}", true);
                 return false;
             }
         }
@@ -169,10 +169,9 @@ namespace UnityCliConnector
 
         static void Stop()
         {
-            var port = s_Port;
             StopListener();
             Heartbeat.MarkStopped();
-            Debug.Log($"[UnityCliConnector] HTTP server stopped (was port {port})");
+            Debug.Log("[UnityCliConnector] HTTP server stopped");
         }
 
         static void ForceEditorUpdate()
@@ -293,7 +292,11 @@ namespace UnityCliConnector
 
             try
             {
-                if (request.HttpMethod != "POST" || request.Url.AbsolutePath != "/command")
+                if (request.HttpMethod == "GET" && request.Url.AbsolutePath == "/health")
+                {
+                    result = new SuccessResponse("ok", Heartbeat.HealthSnapshot());
+                }
+                else if (request.HttpMethod != "POST" || request.Url.AbsolutePath != "/command")
                 {
                     result = new ErrorResponse($"Expected POST /command, got {request.HttpMethod} {request.Url.AbsolutePath}");
                     response.StatusCode = 400;

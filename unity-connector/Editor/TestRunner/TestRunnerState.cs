@@ -22,22 +22,22 @@ namespace UnityCliConnector.TestRunner
             AssemblyReloadEvents.afterAssemblyReload += OnAfterAssemblyReload;
         }
 
-        public static void MarkPending(int port, string filter)
+        public static void MarkPending(string runId, string filter)
         {
-            var pending = new { port, filter = filter ?? "" };
+            var pending = new { runId, filter = filter ?? "" };
             try
             {
                 Directory.CreateDirectory(RunTests.StatusDir);
-                File.WriteAllText(PendingFilePath(port), JsonConvert.SerializeObject(pending));
+                File.WriteAllText(PendingFilePath(runId), JsonConvert.SerializeObject(pending));
             }
             catch { }
         }
 
-        public static void ClearPending(int port)
+        public static void ClearPending(string runId)
         {
             try
             {
-                var path = PendingFilePath(port);
+                var path = PendingFilePath(runId);
                 if (File.Exists(path)) File.Delete(path);
             }
             catch { }
@@ -52,18 +52,18 @@ namespace UnityCliConnector.TestRunner
                 {
                     var json = File.ReadAllText(file);
                     var pending = JObject.Parse(json);
-                    var port   = pending["port"]?.Value<int>() ?? 0;
+                    var runId  = pending["runId"]?.Value<string>();
                     var filter = pending["filter"]?.Value<string>();
 
-                    if (port == 0) continue;
+                    if (string.IsNullOrEmpty(runId)) continue;
 
-                    ReattachCallbacks(port, filter);
+                    ReattachCallbacks(runId, filter);
                 }
             }
             catch { }
         }
 
-        static void ReattachCallbacks(int port, string filter)
+        static void ReattachCallbacks(string runId, string filter)
         {
             var passed  = new List<string>();
             var failed  = new List<string>();
@@ -75,15 +75,15 @@ namespace UnityCliConnector.TestRunner
                 onFinished: _ =>
                 {
                     Object.DestroyImmediate(api);
-                    ClearPending(port);
-                    RunTests.WriteResultsFile(port, passed, failed, skipped);
+                    ClearPending(runId);
+                    RunTests.WriteResultsFile(runId, passed, failed, skipped);
                 }
             );
 
             api.RegisterCallbacks(callbacks);
         }
 
-        static string PendingFilePath(int port) =>
-            Path.Combine(RunTests.StatusDir, $"test-pending-{port}.json");
+        static string PendingFilePath(string runId) =>
+            Path.Combine(RunTests.StatusDir, $"test-pending-{runId}.json");
     }
 }

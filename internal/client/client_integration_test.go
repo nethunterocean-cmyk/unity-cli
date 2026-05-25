@@ -9,18 +9,18 @@ import (
 )
 
 func TestDiscoverInstance(t *testing.T) {
-	inst, err := client.DiscoverInstance("", 0)
+	inst, err := client.DiscoverInstance("")
 	if err != nil {
 		t.Fatalf("failed to discover Unity instance: %v", err)
 	}
 	if inst.Port == 0 {
 		t.Error("expected non-zero port")
 	}
-	t.Logf("found Unity at port %d, project: %s", inst.Port, inst.ProjectPath)
+	t.Logf("found Unity project: %s", inst.ProjectPath)
 }
 
 func TestSendExec(t *testing.T) {
-	inst, err := client.DiscoverInstance("", 0)
+	inst, err := client.DiscoverInstance("")
 	if err != nil {
 		t.Fatalf("failed to discover Unity instance: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestSendExec(t *testing.T) {
 }
 
 func TestSendConsole(t *testing.T) {
-	inst, err := client.DiscoverInstance("", 0)
+	inst, err := client.DiscoverInstance("")
 	if err != nil {
 		t.Fatalf("failed to discover Unity instance: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestSendConsole(t *testing.T) {
 }
 
 func TestSendUnknownCommand(t *testing.T) {
-	inst, err := client.DiscoverInstance("", 0)
+	inst, err := client.DiscoverInstance("")
 	if err != nil {
 		t.Fatalf("failed to discover Unity instance: %v", err)
 	}

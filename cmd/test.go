@@ -26,7 +26,7 @@ func (s *suppressWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
-func testCmd(args []string, send sendFn, port int) (*client.CommandResponse, error) {
+func testCmd(args []string, send sendFn, resolve instanceResolver) (*client.CommandResponse, error) {
 	flags := parseSubFlags(args)
 
 	mode := "EditMode"
@@ -41,6 +41,8 @@ func testCmd(args []string, send sendFn, port int) (*client.CommandResponse, err
 	params := map[string]interface{}{
 		"mode": mode,
 	}
+	runID := newTestRunID()
+	params["runId"] = runID
 	if filter, ok := flags["filter"]; ok {
 		params["filter"] = filter
 	}
@@ -80,16 +82,20 @@ func testCmd(args []string, send sendFn, port int) (*client.CommandResponse, err
 	log.SetOutput(&suppressWriter{w: os.Stderr, suppress: "Unsolicited response received on idle HTTP channel"})
 	defer log.SetOutput(original)
 
-	return pollTestResults(port)
+	return pollTestResults(runID, resolve)
 }
 
-func pollTestResults(port int) (*client.CommandResponse, error) {
+func newTestRunID() string {
+	return fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+}
+
+func pollTestResults(runID string, resolve instanceResolver) (*client.CommandResponse, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	resultsPath := filepath.Join(home, ".unity-cli", "status", fmt.Sprintf("test-results-%d.json", port))
+	resultsPath := filepath.Join(home, ".unity-cli", "status", fmt.Sprintf("test-results-%s.json", runID))
 	deadline := time.Now().Add(10 * time.Minute)
 
 	for time.Now().Before(deadline) {
@@ -105,10 +111,13 @@ func pollTestResults(port int) (*client.CommandResponse, error) {
 			return &resp, nil
 		}
 
-		// Check Unity process is still alive (heartbeat may be stale during domain reload)
-		inst, err := readStatus(port)
-		if err == nil && inst.State == "stopped" {
-			return nil, fmt.Errorf("unity editor has stopped (port %d)", port)
+		if resolve != nil {
+			if _, err := resolve(); err != nil {
+				msg := err.Error()
+				if strings.Contains(msg, "no Unity instances running") || strings.Contains(msg, "no Unity instance found for project") {
+					return nil, fmt.Errorf("unity editor has stopped")
+				}
+			}
 		}
 	}
 

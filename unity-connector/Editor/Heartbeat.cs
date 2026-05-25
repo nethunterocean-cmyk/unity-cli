@@ -16,10 +16,16 @@ namespace UnityCliConnector
 
         static double s_LastWrite;
         const double INTERVAL = 0.5;
-        const string CONNECTOR_VERSION = "0.3.19";
+        const string CONNECTOR_VERSION = "0.3.20";
         static string s_ForcedState;
         static double s_CompileRequestTime;
         static string s_FilePath;
+        static string s_LastState;
+        static string s_LastProjectPath;
+        static string s_LastUnityVersion;
+        static int s_LastPid;
+        static long s_LastTimestamp;
+        static bool s_LastCompileErrors;
 
         static Heartbeat()
         {
@@ -92,22 +98,41 @@ namespace UnityCliConnector
 
         static void Write()
         {
+            var state = s_ForcedState ?? GetState();
+            var projectPath = Application.dataPath.Replace("/Assets", "");
+            var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var compileErrors = EditorUtility.scriptCompilationFailed;
+
+            s_LastState = state;
+            s_LastProjectPath = projectPath;
+            s_LastUnityVersion = Application.unityVersion;
+            s_LastPid = pid;
+            s_LastTimestamp = timestamp;
+            s_LastCompileErrors = compileErrors;
+
             var status = new
             {
-                state = s_ForcedState ?? GetState(),
-                projectPath = Application.dataPath.Replace("/Assets", ""),
+                state,
+                projectPath,
                 port = HttpServer.Port,
-                pid = System.Diagnostics.Process.GetCurrentProcess().Id,
-                unityVersion = Application.unityVersion,
+                pid,
+                unityVersion = s_LastUnityVersion,
                 connectorVersion = GetConnectorVersion(),
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                compileErrors = EditorUtility.scriptCompilationFailed,
+                timestamp,
+                compileErrors,
             };
 
             try
             {
                 Directory.CreateDirectory(s_Dir);
-                File.WriteAllText(GetFilePath(), JsonConvert.SerializeObject(status));
+                var path = GetFilePath();
+                var tmp = path + ".tmp";
+                File.WriteAllText(tmp, JsonConvert.SerializeObject(status));
+                if (File.Exists(path))
+                    File.Replace(tmp, path, null);
+                else
+                    File.Move(tmp, path);
             }
             catch
             {
@@ -117,6 +142,24 @@ namespace UnityCliConnector
         static string GetConnectorVersion()
         {
             return CONNECTOR_VERSION;
+        }
+
+        public static object HealthSnapshot()
+        {
+            var ready = s_LastTimestamp > 0 && !string.IsNullOrEmpty(s_LastProjectPath) && s_LastPid > 0;
+            return new
+            {
+                state = s_LastState ?? "starting",
+                projectPath = s_LastProjectPath ?? "",
+                port = HttpServer.Port,
+                pid = s_LastPid,
+                unityVersion = s_LastUnityVersion ?? "",
+                connectorVersion = GetConnectorVersion(),
+                timestamp = s_LastTimestamp,
+                compileErrors = s_LastCompileErrors,
+                listenerRunning = HttpServer.IsRunning,
+                ready,
+            };
         }
 
         static string GetState()

@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>unity-cli connection flow</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --ink: #172033;
+      --muted: #5d687a;
+      --line: #cfd7e6;
+      --bad: #b44538;
+      --bad-bg: #fff0ed;
+      --good: #1f7a52;
+      --good-bg: #eaf7f0;
+      --warn: #9a6b16;
+      --warn-bg: #fff6dc;
+      --panel: #ffffff;
+      --accent: #2864c9;
+      --accent-bg: #eaf1ff;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 34px 0 48px;
+    }
+
+    h1, h2, h3, p {
+      margin-top: 0;
+    }
+
+    h1 {
+      font-size: 30px;
+      margin-bottom: 8px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 20px;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    .lead {
+      color: var(--muted);
+      max-width: 860px;
+      margin-bottom: 22px;
+    }
+
+    .grid,
+    .three {
+      display: grid;
+      gap: 16px;
+    }
+
+    .two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+      box-shadow: 0 10px 26px rgba(23, 32, 51, 0.06);
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .bad .tag, .bad-tag {
+      color: var(--bad);
+      background: var(--bad-bg);
+    }
+
+    .good .tag, .good-tag {
+      color: var(--good);
+      background: var(--good-bg);
+    }
+
+    .warn-tag {
+      color: var(--warn);
+      background: var(--warn-bg);
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcff;
+      min-height: 72px;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .arrow {
+      text-align: center;
+      color: var(--muted);
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 42px 1fr;
+      gap: 14px;
+      align-items: stretch;
+      margin: 22px 0;
+    }
+
+    .divider {
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 19px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      background: #eef2f8;
+      border: 1px solid #dce4f2;
+      border-radius: 5px;
+      padding: 1px 5px;
+      white-space: nowrap;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .matrix div {
+      padding: 12px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      min-height: 48px;
+    }
+
+    .matrix div:nth-child(3n) {
+      border-right: 0;
+    }
+
+    .matrix div:nth-last-child(-n + 3) {
+      border-bottom: 0;
+    }
+
+    .head {
+      font-weight: 700;
+      background: var(--accent-bg);
+      color: var(--accent);
+    }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--accent-bg);
+      padding: 14px 16px;
+      border-radius: 8px;
+      margin: 16px 0;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcff;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+
+    .bars {
+      display: grid;
+      gap: 10px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 160px 1fr 84px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .bar-track {
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #e7edf7;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: var(--accent);
+    }
+
+    .bar-fill.good {
+      background: var(--good);
+    }
+
+    .bar-fill.warn {
+      background: var(--warn);
+    }
+
+    .bar-fill.bad {
+      background: var(--bad);
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 860px) {
+      main {
+        width: min(100vw - 24px, 760px);
+      }
+
+      .two, .three, .compare, .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .bar-row {
+        grid-template-columns: 1fr;
+        gap: 5px;
+      }
+
+      .divider {
+        min-height: 28px;
+      }
+
+      .matrix {
+        grid-template-columns: 1fr;
+      }
+
+      .matrix div,
+      .matrix div:nth-child(3n),
+      .matrix div:nth-last-child(-n + 3) {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .matrix div:last-child {
+        border-bottom: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>unity-cli 연결 구조 변경 요약</h1>
+  <p class="lead">이번 변경은 사용자가 포트를 고르지 않게 하고, Unity 리로드나 listener 재시작 중에도 같은 프로젝트의 최신 연결 상태를 다시 확인해서 명령을 보내도록 정리한 것이다. 버전 검사는 기본적으로 엄격하지만, 필요하면 <code>--ignore-version-mismatch</code>로 명시적으로 생략할 수 있다.</p>
+
+  <section class="compare">
+    <article class="panel bad">
+      <span class="tag">이전 흐름</span>
+      <h2>포트 중심</h2>
+      <div class="flow">
+        <div class="step"><strong>1. 대상 선택</strong>사용자가 <code>--port</code>를 직접 넣거나, CLI가 한 번 찾은 포트를 계속 사용했다.</div>
+        <div class="arrow">↓</div>
+        <div class="step"><strong>2. Unity 상태 변화</strong>컴파일, 도메인 리로드, listener 재시작 중 포트와 heartbeat 파일 상태가 어긋날 수 있었다.</div>
+        <div class="arrow">↓</div>
+        <div class="step"><strong>3. 명령 전송</strong>이미 잡아 둔 포트로 전송해서 끊긴 listener나 다른 상태를 볼 수 있었다.</div>
+        <div class="arrow">↓</div>
+        <div class="step"><strong>4. 실패 양상</strong>타임아웃, 잘못된 인스턴스 선택, 오래된 heartbeat 의존 문제가 생겼다.</div>
+      </div>
+    </article>
+
+    <div class="divider">→</div>
+
+    <article class="panel good">
+      <span class="tag">현재 흐름</span>
+      <h2>프로젝트 중심</h2>
+      <div class="flow">
+        <div class="step"><strong>1. 대상 선택</strong><code>--project</code>, 현재 작업 디렉터리, 유일한 활성 인스턴스 순서로 프로젝트를 고른다.</div>
+        <div class="arrow">↓</div>
+        <div class="step"><strong>2. 최신 상태 재조회</strong>명령 전과 재시도마다 instance 파일을 다시 읽어 같은 프로젝트의 최신 listener를 찾는다.</div>
+        <div class="arrow">↓</div>
+        <div class="step"><strong>3. 즉시 health 확인</strong><code>/health</code>로 listener가 준비됐는지, 프로젝트가 맞는지, PID와 timestamp가 유효한지 확인한다.</div>
+        <div class="arrow">↓</div>
+        <div class="step"><strong>4. 명령 전송</strong>기본은 health를 통과한 snapshot으로만 <code>/command</code>를 보낸다. <code>--ignore-version-mismatch</code>에서 구버전 connector의 health endpoint 미지원이 확인된 경우만 discovery 결과로 보낸다.</div>
+      </div>
+    </article>
+  </section>
+
+  <section class="panel">
+    <h2>현재 명령 실행 파이프라인</h2>
+    <div class="three">
+      <div class="step"><strong>Discover</strong><code>DiscoverInstance(project)</code><br>프로젝트 경로 기준으로 활성 instance를 찾는다. 여러 개가 애매하면 에러를 낸다.</div>
+      <div class="step"><strong>Health</strong><code>GET /health</code><br>Unity main thread command queue를 거치지 않고 listener 자체 상태를 빠르게 확인한다.</div>
+      <div class="step"><strong>Send</strong><code>POST /command</code><br>보내기 직전에도 다시 resolve해서 리로드/재시작 후 새 listener를 따라간다.</div>
+    </div>
+    <div class="callout">
+      포트는 내부 HTTP transport에만 남아 있다. 사용자는 포트를 입력하지 않고, status/help/README/로그/CLI 연결 에러에서도 포트 번호를 보지 않는다.
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>코드량과 구조 변화</h2>
+    <p class="lead">아래 수치는 이 HTML 문서를 제외한 git-tracked Go/C# 소스와 기존 추적 파일 diff 기준이다. 실제 런타임 코드는 연결 책임을 새로 얹은 만큼 늘었고, 테스트는 회귀 방지를 위해 더 크게 늘었다.</p>
+
+    <div class="metrics">
+      <div class="metric"><strong>5,664</strong><span class="small">현재 git-tracked Go/C# 코드 라인</span></div>
+      <div class="metric"><strong>4,737</strong><span class="small">변경 전 git-tracked Go/C# 코드 라인</span></div>
+      <div class="metric"><strong>+927</strong><span class="small">전체 코드 순증가</span></div>
+      <div class="metric"><strong>37 files</strong><span class="small">Go/C# 코드 파일</span></div>
+      <div class="metric"><strong>3,402</strong><span class="small">현재 Go 코드 라인</span></div>
+      <div class="metric"><strong>2,520</strong><span class="small">변경 전 Go 코드 라인</span></div>
+      <div class="metric"><strong>2,262</strong><span class="small">현재 C# 코드 라인</span></div>
+      <div class="metric"><strong>2,217</strong><span class="small">변경 전 C# 코드 라인</span></div>
+      <div class="metric"><strong>16 files</strong><span class="small">기존 추적 파일 변경</span></div>
+      <div class="metric"><strong>+1527</strong><span class="small">추가 라인</span></div>
+      <div class="metric"><strong>-531</strong><span class="small">삭제 라인</span></div>
+      <div class="metric"><strong>+996</strong><span class="small">diff 기준 순증가</span></div>
+    </div>
+
+    <div class="bars">
+      <div class="bar-row">
+        <strong>Go 코드</strong>
+        <div class="bar-track"><div class="bar-fill" style="width: 95%;"></div></div>
+        <span>+882 lines</span>
+      </div>
+      <div class="bar-row">
+        <strong>C# 코드</strong>
+        <div class="bar-track"><div class="bar-fill good" style="width: 5%;"></div></div>
+        <span>+45 lines</span>
+      </div>
+      <div class="bar-row">
+        <strong>런타임 코드</strong>
+        <div class="bar-track"><div class="bar-fill good" style="width: 25%;"></div></div>
+        <span>+233 lines</span>
+      </div>
+      <div class="bar-row">
+        <strong>테스트 코드</strong>
+        <div class="bar-track"><div class="bar-fill" style="width: 75%;"></div></div>
+        <span>+694 lines</span>
+      </div>
+      <div class="bar-row">
+        <strong>README</strong>
+        <div class="bar-track"><div class="bar-fill warn" style="width: 3%;"></div></div>
+        <span>-14 net</span>
+      </div>
+    </div>
+
+    <div class="matrix" style="margin-top: 16px;">
+      <div class="head">영역</div>
+      <div class="head">전</div>
+      <div class="head">이번 작업 후</div>
+
+      <div>CLI 진입부</div>
+      <div><code>DiscoverInstance</code> 후 그 인스턴스에 바로 명령을 보내는 단순 흐름이었다.</div>
+      <div><code>resolveReady</code>, <code>sendWithRetry</code>, deadline 계산, health probe가 추가되어 명령 전까지 재조회한다.</div>
+
+      <div>POST 재시도</div>
+      <div>연결 오류를 같은 방식으로 다시 시도할 여지가 있었다.</div>
+      <div>비멱등 명령 중복 실행을 막기 위해 <code>/command</code> POST 이후 오류는 재시도하지 않는다.</div>
+
+      <div>인스턴스 탐색</div>
+      <div>포트 lookup 함수와 최근 heartbeat 선택에 의존하는 경로가 있었다.</div>
+      <div><code>DiscoverInstance(project)</code> 하나로 수렴했다. 프로젝트 exact match, substring ambiguity, 현재 작업 디렉터리 매칭을 처리한다.</div>
+
+      <div>상태 파일 처리</div>
+      <div>옛 형식처럼 PID가 0인 파일도 살아남을 수 있었다.</div>
+      <div>PID 0, 죽은 PID, 깨진 JSON을 걸러낸다. 일시적으로 깨진 JSON은 한 번 재시도한다.</div>
+
+      <div>Connector</div>
+      <div>heartbeat 중심으로 상태를 봤고, 명령은 command queue에 들어가야 응답을 받았다.</div>
+      <div><code>/health</code>가 추가되어 listener 준비 상태를 command queue 밖에서 즉시 확인한다.</div>
+
+      <div>테스트</div>
+      <div>포트 선택 중심 테스트가 많았다.</div>
+      <div>프로젝트 선택, ambiguity, health, retry, timeout, 버전 mismatch, 포트 제거 에러, runId test result를 검증한다.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>삭제하거나 바꾼 것</h2>
+    <div class="matrix">
+      <div class="head">항목</div>
+      <div class="head">이전</div>
+      <div class="head">현재</div>
+
+      <div><code>--port</code></div>
+      <div>사용자가 Unity 인스턴스를 포트로 직접 선택할 수 있었다.</div>
+      <div>CLI flag 형태는 모든 위치에서 제거 에러. <code>--params</code> JSON 내부 값은 custom tool payload로 취급한다.</div>
+
+      <div>인스턴스 선택</div>
+      <div>포트 또는 최근 heartbeat에 의존했다.</div>
+      <div>일반 명령은 프로젝트 경로 기준. 현재 작업 디렉터리 안의 프로젝트도 자동 선택한다.</div>
+
+      <div>다중 Unity</div>
+      <div>기본값이 애매하면 의도하지 않은 Unity를 잡을 수 있었다.</div>
+      <div>일반 명령에서 명확히 고를 수 없으면 <code>--project</code>를 요구한다. <code>status</code>는 표시용으로 별도 조회한다.</div>
+
+      <div>PID 0 heartbeat</div>
+      <div>옛 형식 파일처럼 살려둘 수 있었다.</div>
+      <div>유효하지 않은 instance로 보고 제거한다.</div>
+
+      <div>PlayMode test 결과 파일</div>
+      <div>포트 기반 파일명으로 충돌 가능성이 있었다.</div>
+      <div>실행별 <code>runId</code> 기반 파일명으로 분리한다.</div>
+
+      <div>버전 mismatch</div>
+      <div>옵션으로 우회 가능했다.</div>
+      <div>기본은 거절, <code>--ignore-version-mismatch</code>를 명시하면 버전 검사를 생략한다. 구버전 connector가 health endpoint를 제공하지 않는 경우만 discovery 결과로 command를 보낸다.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>버전 검사 정책</h2>
+    <div class="grid two">
+      <div class="step">
+        <span class="tag warn-tag">기본값</span>
+        <h3>버전이 다르면 거절</h3>
+        <p>CLI와 Unity Connector가 서로 다른 릴리스면 명령 실행 전에 멈춘다. 이 경로는 프로토콜이나 응답 shape가 달라졌을 때 잘못된 결과를 막기 위한 기본 안전장치다.</p>
+      </div>
+      <div class="step">
+        <span class="tag good-tag">명시적 우회</span>
+        <h3><code>--ignore-version-mismatch</code></h3>
+        <p>사용자가 이 옵션을 주면 버전 검사를 생략한다. 새 connector면 health 확인을 쓰고, health endpoint가 없는 옛 connector면 프로젝트 선택 결과를 기준으로 직접 command를 보낸다. not-ready, project mismatch, 연결 실패는 이 옵션으로 숨기지 않는다.</p>
+      </div>
+    </div>
+    <div class="callout">
+      따라서 "버전이 다르면 무조건 거절"은 아니다. 기본은 거절이고, 사용자가 위험을 알고 옵션을 주면 실행한다.
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>연결 문제를 줄이는 핵심</h2>
+    <ul>
+      <li>사용자 입력에서 포트 개념을 제거했다.</li>
+      <li>명령마다 같은 프로젝트의 최신 listener를 다시 찾는다.</li>
+      <li>main thread command queue와 별개인 <code>/health</code>로 준비 상태를 확인한다.</li>
+      <li>listener가 리로드 중이면 deadline 안에서 다시 resolve하고, 명령 POST 전까지만 재시도한다.</li>
+      <li>상태 출력과 문서에서는 프로젝트, Unity 버전, connector 버전, PID만 보여준다.</li>
+    </ul>
+  </section>
+
+  <p class="small">문서 기준: 현재 워킹트리 변경 사항. 내부 HTTP transport 구현의 포트 필드는 실제 연결에 필요하므로 사용자 선택 옵션과 별도로 유지된다.</p>
+</main>
+</body>
+</html>

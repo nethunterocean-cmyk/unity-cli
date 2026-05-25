@@ -2,10 +2,16 @@ package client
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 // stubIsProcessDead replaces isProcessDead for testing.
@@ -42,104 +48,7 @@ func writeInstanceFiles(t *testing.T, files map[string]Instance) string {
 	return home
 }
 
-// --- FindActiveByPort tests ---
-
-// TestFindActiveByPort_SkipsStoppedPicksLatest verifies the core bug fix:
-// when a stopped instance and a ready instance share the same port,
-// FindActiveByPort must return the ready instance with the latest timestamp.
-func TestFindActiveByPort_SkipsStoppedPicksLatest(t *testing.T) {
-	stubIsProcessDead(t, map[int]bool{})
-
-	home := writeInstanceFiles(t, map[string]Instance{
-		// Alphabetically first — the old bug would pick this one
-		"aaa_stopped.json": {
-			State:       "stopped",
-			ProjectPath: "/projects/old",
-			Port:        8090,
-			PID:         100,
-			Timestamp:   1000,
-		},
-		"bbb_ready.json": {
-			State:       "ready",
-			ProjectPath: "/projects/current",
-			Port:        8090,
-			PID:         200,
-			Timestamp:   2000,
-		},
-	})
-	t.Setenv("HOME", home)
-
-	got, err := FindActiveByPort(8090)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.State != "ready" {
-		t.Errorf("State: got %q, want %q", got.State, "ready")
-	}
-	if got.ProjectPath != "/projects/current" {
-		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, "/projects/current")
-	}
-	if got.Timestamp != 2000 {
-		t.Errorf("Timestamp: got %d, want %d", got.Timestamp, 2000)
-	}
-}
-
-// TestFindActiveByPort_PicksLatestTimestamp verifies that among multiple active
-// instances on the same port, the one with the newest timestamp wins.
-func TestFindActiveByPort_PicksLatestTimestamp(t *testing.T) {
-	stubIsProcessDead(t, map[int]bool{})
-
-	home := writeInstanceFiles(t, map[string]Instance{
-		"aaa_old.json": {
-			State:       "ready",
-			ProjectPath: "/projects/old",
-			Port:        8090,
-			PID:         100,
-			Timestamp:   1000,
-		},
-		"bbb_new.json": {
-			State:       "ready",
-			ProjectPath: "/projects/new",
-			Port:        8090,
-			PID:         200,
-			Timestamp:   2000,
-		},
-	})
-	t.Setenv("HOME", home)
-
-	got, err := FindActiveByPort(8090)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.Timestamp != 2000 {
-		t.Errorf("Timestamp: got %d, want %d", got.Timestamp, 2000)
-	}
-}
-
-func TestFindActiveByPort_SkipsZeroTimestamp(t *testing.T) {
-	stubIsProcessDead(t, map[int]bool{})
-
-	home := writeInstanceFiles(t, map[string]Instance{
-		"zero_timestamp.json": {
-			State:       "ready",
-			ProjectPath: "/projects/incomplete",
-			Port:        8090,
-			PID:         100,
-			Timestamp:   0,
-		},
-	})
-	t.Setenv("HOME", home)
-
-	if _, err := FindActiveByPort(8090); err == nil {
-		t.Fatal("expected error for instance without heartbeat timestamp")
-	}
-}
-
-// --- FindByPort tests (exact lookup, includes stopped) ---
-
-// TestFindByPort_ReturnsStoppedInstance verifies that FindByPort returns
-// stopped instances, so `unity-cli status` can display them.
-func TestFindByPort_ReturnsStoppedInstance(t *testing.T) {
+func TestActiveInstances_SkipsStoppedAndZeroTimestamp(t *testing.T) {
 	stubIsProcessDead(t, map[int]bool{})
 
 	home := writeInstanceFiles(t, map[string]Instance{
@@ -150,48 +59,32 @@ func TestFindByPort_ReturnsStoppedInstance(t *testing.T) {
 			PID:         100,
 			Timestamp:   1000,
 		},
-	})
-	t.Setenv("HOME", home)
-
-	got, err := FindByPort(8090)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.State != "stopped" {
-		t.Errorf("State: got %q, want %q", got.State, "stopped")
-	}
-}
-
-// TestFindByPort_PicksLatestWhenMixed verifies that FindByPort picks
-// the latest timestamp even among mixed states.
-func TestFindByPort_PicksLatestWhenMixed(t *testing.T) {
-	stubIsProcessDead(t, map[int]bool{})
-
-	home := writeInstanceFiles(t, map[string]Instance{
-		"aaa_stopped.json": {
-			State:       "stopped",
-			ProjectPath: "/projects/old",
-			Port:        8090,
-			PID:         100,
-			Timestamp:   1000,
+		"zero_timestamp.json": {
+			State:       "ready",
+			ProjectPath: "/projects/incomplete",
+			Port:        8091,
+			PID:         150,
+			Timestamp:   0,
 		},
-		"bbb_ready.json": {
+		"ready.json": {
 			State:       "ready",
 			ProjectPath: "/projects/current",
-			Port:        8090,
+			Port:        8092,
 			PID:         200,
 			Timestamp:   2000,
 		},
 	})
 	t.Setenv("HOME", home)
 
-	got, err := FindByPort(8090)
+	got, err := ActiveInstances()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Latest timestamp wins regardless of state
-	if got.Timestamp != 2000 {
-		t.Errorf("Timestamp: got %d, want %d", got.Timestamp, 2000)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 active instance, got %d", len(got))
+	}
+	if got[0].ProjectPath != "/projects/current" {
+		t.Errorf("ProjectPath: got %q, want /projects/current", got[0].ProjectPath)
 	}
 }
 
@@ -274,15 +167,13 @@ func TestScanInstances_KeepsOnPermissionError(t *testing.T) {
 	}
 }
 
-// TestScanInstances_KeepsZeroPID verifies that instances with PID 0
-// (e.g. legacy files) are kept without process checking.
-func TestScanInstances_KeepsZeroPID(t *testing.T) {
+func TestScanInstances_RemovesZeroPID(t *testing.T) {
 	stubIsProcessDead(t, map[int]bool{})
 
 	home := writeInstanceFiles(t, map[string]Instance{
-		"legacy.json": {
+		"zero_pid.json": {
 			State:       "ready",
-			ProjectPath: "/projects/legacy",
+			ProjectPath: "/projects/zero-pid",
 			Port:        8090,
 			PID:         0,
 			Timestamp:   1000,
@@ -294,8 +185,229 @@ func TestScanInstances_KeepsZeroPID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if len(instances) != 0 {
+		t.Fatalf("expected 0 instances, got %d", len(instances))
+	}
+	fp := filepath.Join(home, ".unity-cli", "instances", "zero_pid.json")
+	if _, err := os.Stat(fp); !os.IsNotExist(err) {
+		t.Error("zero_pid.json should have been deleted")
+	}
+}
+
+func TestScanInstances_RetriesTransientInvalidJSON(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir := filepath.Join(home, ".unity-cli", "instances")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("failed to create instances dir: %v", err)
+	}
+	path := filepath.Join(dir, "instance.json")
+	if err := os.WriteFile(path, []byte("{"), 0644); err != nil {
+		t.Fatalf("failed to write partial instance: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		data, _ := json.Marshal(Instance{
+			State:       "ready",
+			ProjectPath: "/projects/current",
+			Port:        8090,
+			PID:         100,
+			Timestamp:   1000,
+		})
+		_ = os.WriteFile(path, data, 0644)
+		close(done)
+	}()
+	t.Cleanup(func() { <-done })
+
+	instances, err := ScanInstances()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(instances) != 1 {
 		t.Fatalf("expected 1 instance, got %d", len(instances))
+	}
+	if instances[0].ProjectPath != "/projects/current" {
+		t.Errorf("ProjectPath: got %q, want /projects/current", instances[0].ProjectPath)
+	}
+}
+
+func TestScanInstances_SkipsPersistentInvalidJSON(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir := filepath.Join(home, ".unity-cli", "instances")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("failed to create instances dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "instance.json"), []byte("{"), 0644); err != nil {
+		t.Fatalf("failed to write partial instance: %v", err)
+	}
+
+	instances, err := ScanInstances()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(instances) != 0 {
+		t.Fatalf("expected 0 instances, got %d", len(instances))
+	}
+}
+
+func TestHealth_ReturnsListenerSnapshot(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"ready","projectPath":"/projects/current","port":8090,"pid":123,"unityVersion":"6000.3.10f1","connectorVersion":"0.3.19","timestamp":1000,"ready":true,"listenerRunning":true}}`)
+	_ = server
+
+	got, err := Health(&Instance{Port: port}, 1000)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ProjectPath != "/projects/current" {
+		t.Errorf("ProjectPath: got %q, want /projects/current", got.ProjectPath)
+	}
+	if got.ConnectorVersion != "0.3.19" {
+		t.Errorf("ConnectorVersion: got %q, want 0.3.19", got.ConnectorVersion)
+	}
+}
+
+func TestHealth_RejectsNotReadySnapshot(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"starting","projectPath":"","port":8090,"pid":0,"timestamp":0,"ready":false}}`)
+	_ = server
+
+	if _, err := Health(&Instance{Port: port}, 1000); err == nil {
+		t.Fatal("expected not-ready health snapshot error")
+	}
+}
+
+func TestHealth_ReturnsNonOKError(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusServiceUnavailable, `busy`)
+	_ = server
+
+	if _, err := Health(&Instance{Port: port}, 1000); err == nil {
+		t.Fatal("expected non-OK health error")
+	}
+}
+
+func TestHealth_ReturnsMissingHealthEndpointSentinel(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusNotFound, `missing`)
+	_ = server
+
+	_, err := Health(&Instance{Port: port}, 1000)
+	if !errors.Is(err, ErrHealthEndpointUnavailable) {
+		t.Fatalf("expected ErrHealthEndpointUnavailable, got %v", err)
+	}
+}
+
+func TestHealth_ReturnsMissingHealthEndpointSentinelForLegacyCommandOnlyEndpoint(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusBadRequest, `{"success":false,"message":"Expected POST /command, got GET /health","data":null}`)
+	_ = server
+
+	_, err := Health(&Instance{Port: port}, 1000)
+	if !errors.Is(err, ErrHealthEndpointUnavailable) {
+		t.Fatalf("expected ErrHealthEndpointUnavailable, got %v", err)
+	}
+}
+
+func TestHealth_ReturnsInvalidJSONError(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{`)
+	_ = server
+
+	if _, err := Health(&Instance{Port: port}, 1000); err == nil {
+		t.Fatal("expected invalid JSON error")
+	}
+}
+
+func TestHealth_ReturnsUnsuccessfulHealthError(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":false,"message":"not ready"}`)
+	_ = server
+
+	if _, err := Health(&Instance{Port: port}, 1000); err == nil {
+		t.Fatal("expected unsuccessful health error")
+	}
+}
+
+func TestHealth_RejectsProjectMismatch(t *testing.T) {
+	server, port := healthTestServer(t, http.StatusOK, `{"success":true,"message":"ok","data":{"state":"ready","projectPath":"/projects/other","port":8090,"pid":123,"timestamp":1000,"ready":true}}`)
+	_ = server
+
+	if _, err := Health(&Instance{ProjectPath: "/projects/current", Port: port}, 1000); err == nil {
+		t.Fatal("expected project mismatch error")
+	}
+}
+
+func TestHealth_ConnectionErrorDoesNotExposePort(t *testing.T) {
+	port := closedLocalPort(t)
+
+	_, err := Health(&Instance{Port: port}, 1000)
+	if err == nil {
+		t.Fatal("expected connection error")
+	}
+	assertNoPortLeak(t, err.Error(), port)
+}
+
+func TestSend_ConnectionErrorDoesNotExposePort(t *testing.T) {
+	port := closedLocalPort(t)
+
+	_, err := Send(&Instance{Port: port}, "exec", nil, 1000)
+	if err == nil {
+		t.Fatal("expected connection error")
+	}
+	assertNoPortLeak(t, err.Error(), port)
+}
+
+func healthTestServer(t *testing.T, status int, body string) (*http.Server, int) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	})
+	server := &http.Server{Handler: mux}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = listener.Close()
+	})
+
+	var port int
+	if _, err := fmt.Sscanf(listener.Addr().String(), "127.0.0.1:%d", &port); err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+	return server, port
+}
+
+func closedLocalPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	var port int
+	if _, err := fmt.Sscanf(listener.Addr().String(), "127.0.0.1:%d", &port); err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatalf("failed to close listener: %v", err)
+	}
+	return port
+}
+
+func assertNoPortLeak(t *testing.T, message string, port int) {
+	t.Helper()
+	if strings.Contains(message, "127.0.0.1") {
+		t.Fatalf("error should not expose host, got %q", message)
+	}
+	if strings.Contains(message, fmt.Sprintf("%d", port)) {
+		t.Fatalf("error should not expose port, got %q", message)
 	}
 }
 
@@ -318,7 +430,7 @@ func TestDiscoverInstance_ProjectPathMatchesSlashVariants(t *testing.T) {
 	})
 	t.Setenv("HOME", home)
 
-	got, err := DiscoverInstance(`E:\GamerAworlD`, 0)
+	got, err := DiscoverInstance(`E:\GamerAworlD`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -327,49 +439,212 @@ func TestDiscoverInstance_ProjectPathMatchesSlashVariants(t *testing.T) {
 	}
 }
 
-// TestDiscoverInstance_PortFlagPopulatesTimestamp verifies that --port lookups
-// return the actual instance file's timestamp when one exists. Without this,
-// waitForAlive sees Timestamp=0 and polls indefinitely for a "newer" heartbeat
-// that never arrives, hanging on "Waiting for Unity..." until --timeout expires.
-func TestDiscoverInstance_PortFlagPopulatesTimestamp(t *testing.T) {
+func TestDiscoverInstance_ProjectPathMatchesCaseVariants(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("case-insensitive path matching is Windows-only")
+	}
 	stubIsProcessDead(t, map[int]bool{})
 
 	home := writeInstanceFiles(t, map[string]Instance{
-		"current.json": {
+		"project.json": {
 			State:       "ready",
-			ProjectPath: "/projects/current",
-			Port:        8091,
-			PID:         200,
-			Timestamp:   12345,
+			ProjectPath: "C:/WorkSpace/ProjectMaid",
+			Port:        8090,
+			PID:         100,
+			Timestamp:   1000,
 		},
 	})
 	t.Setenv("HOME", home)
 
-	got, err := DiscoverInstance("", 8091)
+	got, err := DiscoverInstance("c:/workspace/projectmaid")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.Port != 8091 {
-		t.Errorf("Port: got %d, want %d", got.Port, 8091)
-	}
-	if got.Timestamp != 12345 {
-		t.Errorf("Timestamp: got %d, want %d", got.Timestamp, 12345)
-	}
-	if got.ProjectPath != "/projects/current" {
-		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, "/projects/current")
+	if got.ProjectPath != "C:/WorkSpace/ProjectMaid" {
+		t.Errorf("ProjectPath: got %q, want C:/WorkSpace/ProjectMaid", got.ProjectPath)
 	}
 }
 
-// TestDiscoverInstance_PortFlagRequiresActiveInstance verifies that --port
-// still resolves through heartbeat state instead of manufacturing a partial
-// Instance that polling code can mistake for real status.
-func TestDiscoverInstance_PortFlagRequiresActiveInstance(t *testing.T) {
+func TestDiscoverInstance_UsesCwdProjectMatch(t *testing.T) {
 	stubIsProcessDead(t, map[int]bool{})
 
-	home := writeInstanceFiles(t, map[string]Instance{})
+	home := writeInstanceFiles(t, map[string]Instance{
+		"project.json": {
+			State:       "ready",
+			ProjectPath: "/projects/current",
+			Port:        8090,
+			PID:         100,
+			Timestamp:   1000,
+		},
+		"other.json": {
+			State:       "ready",
+			ProjectPath: "/projects/other",
+			Port:        8091,
+			PID:         200,
+			Timestamp:   2000,
+		},
+	})
 	t.Setenv("HOME", home)
 
-	if _, err := DiscoverInstance("", 8091); err == nil {
-		t.Fatal("expected error for port without an active instance file")
+	cwd := filepath.Join(t.TempDir(), "current", "Assets")
+	if err := os.MkdirAll(cwd, 0755); err != nil {
+		t.Fatalf("failed to create cwd: %v", err)
+	}
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get wd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+
+	// Rewrite the project path to the temp root because tests should not depend on fixed /projects paths.
+	home = writeInstanceFiles(t, map[string]Instance{
+		"project.json": {
+			State:       "ready",
+			ProjectPath: filepath.Dir(cwd),
+			Port:        8090,
+			PID:         100,
+			Timestamp:   1000,
+		},
+		"other.json": {
+			State:       "ready",
+			ProjectPath: "/projects/other",
+			Port:        8091,
+			PID:         200,
+			Timestamp:   2000,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	got, err := DiscoverInstance("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if normalizeProjectPath(got.ProjectPath) != normalizeProjectPath(filepath.Dir(cwd)) {
+		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, filepath.Dir(cwd))
+	}
+}
+
+func TestDiscoverInstance_UsesCwdProjectMatchCaseInsensitiveOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows project paths are case-insensitive")
+	}
+	stubIsProcessDead(t, map[int]bool{})
+
+	cwd := filepath.Join(t.TempDir(), "ProjectMaid", "Assets")
+	if err := os.MkdirAll(cwd, 0755); err != nil {
+		t.Fatalf("failed to create cwd: %v", err)
+	}
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get wd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+
+	projectPath := strings.ToUpper(filepath.Dir(cwd))
+	home := writeInstanceFiles(t, map[string]Instance{
+		"project.json": {
+			State:       "ready",
+			ProjectPath: projectPath,
+			Port:        8090,
+			PID:         100,
+			Timestamp:   1000,
+		},
+		"other.json": {
+			State:       "ready",
+			ProjectPath: filepath.Join(t.TempDir(), "Other"),
+			Port:        8091,
+			PID:         200,
+			Timestamp:   2000,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	got, err := DiscoverInstance("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ProjectPath != projectPath {
+		t.Errorf("ProjectPath: got %q, want %q", got.ProjectPath, projectPath)
+	}
+}
+
+func TestDiscoverInstance_UsesSingleActiveInstance(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{
+		"project.json": {
+			State:       "ready",
+			ProjectPath: "/projects/current",
+			Port:        8090,
+			PID:         100,
+			Timestamp:   1000,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	got, err := DiscoverInstance("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ProjectPath != "/projects/current" {
+		t.Errorf("ProjectPath: got %q, want /projects/current", got.ProjectPath)
+	}
+}
+
+func TestDiscoverInstance_RejectsAmbiguousProjectSelection(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{
+		"one.json": {
+			State:       "ready",
+			ProjectPath: "/projects/one",
+			Port:        8091,
+			PID:         200,
+			Timestamp:   12345,
+		},
+		"two.json": {
+			State:       "ready",
+			ProjectPath: "/projects/two",
+			Port:        8092,
+			PID:         300,
+			Timestamp:   12346,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	if _, err := DiscoverInstance(""); err == nil {
+		t.Fatal("expected error for multiple instances without project")
+	}
+}
+
+func TestDiscoverInstance_RejectsAmbiguousProjectSubstring(t *testing.T) {
+	stubIsProcessDead(t, map[int]bool{})
+
+	home := writeInstanceFiles(t, map[string]Instance{
+		"one.json": {
+			State:       "ready",
+			ProjectPath: "/projects/MyGame",
+			Port:        8091,
+			PID:         200,
+			Timestamp:   12345,
+		},
+		"two.json": {
+			State:       "ready",
+			ProjectPath: "/archive/MyGame",
+			Port:        8092,
+			PID:         300,
+			Timestamp:   12346,
+		},
+	})
+	t.Setenv("HOME", home)
+
+	if _, err := DiscoverInstance("MyGame"); err == nil {
+		t.Fatal("expected error for ambiguous project substring")
 	}
 }

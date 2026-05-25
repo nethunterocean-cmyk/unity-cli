@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
@@ -15,21 +17,23 @@ import (
 var Version = "dev"
 
 var (
-	flagPort                  int
 	flagProject               string
 	flagTimeout               int
 	flagIgnoreVersionMismatch bool
 )
 
 func Execute() error {
-	flag.IntVar(&flagPort, "port", 0, "Select Unity instance by active heartbeat port")
 	flag.StringVar(&flagProject, "project", "", "Select Unity instance by project path")
 	flag.IntVar(&flagTimeout, "timeout", 120000, "Request timeout in milliseconds")
-	flag.BoolVar(&flagIgnoreVersionMismatch, "ignore-version-mismatch", false, "Run even when CLI and connector versions differ")
+	flag.BoolVar(&flagIgnoreVersionMismatch, "ignore-version-mismatch", false, "Skip CLI/connector version check")
 
 	flag.Usage = func() { printHelp() }
 
 	args := os.Args[1:]
+	if err := rejectRemovedFlags(args); err != nil {
+		return err
+	}
+
 	flagArgs, cmdArgs := splitArgs(args)
 	if err := flag.CommandLine.Parse(flagArgs); err != nil {
 		fmt.Fprintf(os.Stderr, "flag parse error: %v\n", err)
@@ -66,33 +70,26 @@ func Execute() error {
 	case "update":
 		return updateCmd(subArgs)
 	case "status":
-		inst, err := discoverStatusInstance(flagProject, flagPort)
-		if err != nil {
-			return err
-		}
-		statusErr := statusCmd(inst)
+		statusErr := statusCmd(flagProject, flagIgnoreVersionMismatch)
 		printUpdateNotice()
 		return statusErr
 	}
 
-	inst, err := client.DiscoverInstance(flagProject, flagPort)
+	inst, err := client.DiscoverInstance(flagProject)
 	if err != nil {
 		return err
 	}
 
 	targetProject := flagProject
-	if flagPort == 0 && targetProject == "" {
+	if targetProject == "" {
 		targetProject = inst.ProjectPath
 	}
 
 	resolve := func() (*client.Instance, error) {
-		if flagPort > 0 {
-			return client.DiscoverInstance("", flagPort)
-		}
-		return client.DiscoverInstance(targetProject, 0)
+		return client.DiscoverInstance(targetProject)
 	}
 
-	alive, err := waitForAlive(resolve, flagTimeout)
+	alive, err := resolveReadyTimeout(resolve, flagTimeout)
 	if err != nil {
 		return err
 	}
@@ -102,14 +99,7 @@ func Execute() error {
 
 	timeout := flagTimeout
 	send := func(command string, params interface{}) (*client.CommandResponse, error) {
-		inst, err := resolve()
-		if err != nil {
-			return nil, err
-		}
-		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
-			return nil, err
-		}
-		return client.Send(inst, command, params, timeout)
+		return sendWithRetry(resolve, command, params, timeout)
 	}
 
 	var resp *client.CommandResponse
@@ -118,17 +108,7 @@ func Execute() error {
 	case "editor":
 		resp, err = editorCmd(subArgs, send, resolve)
 	case "test":
-		currentInst, resolveErr := resolve()
-		if resolveErr != nil {
-			return resolveErr
-		}
-		if err := checkConnectorVersion(currentInst, Version, flagIgnoreVersionMismatch); err != nil {
-			return err
-		}
-		testSend := func(command string, params interface{}) (*client.CommandResponse, error) {
-			return client.Send(currentInst, command, params, 0)
-		}
-		resp, err = testCmd(subArgs, testSend, currentInst.Port)
+		resp, err = testCmd(subArgs, send, resolve)
 	case "exec":
 		subArgs = readStdinIfPiped(subArgs)
 		var params map[string]interface{}
@@ -162,6 +142,137 @@ func Execute() error {
 // sendFn is the function signature for sending a command to Unity.
 // Injected into each command function so they can be tested without a real Unity connection.
 type sendFn func(command string, params interface{}) (*client.CommandResponse, error)
+
+var (
+	resolveReadyTimeout = resolveReady
+	sendCommand         = client.Send
+	healthCheck         = client.Health
+)
+
+func resolveReady(resolve instanceResolver, timeoutMs int) (*client.Instance, error) {
+	deadline := commandDeadline(timeoutMs)
+	var lastErr error
+	for {
+		inst, err := resolve()
+		if err != nil {
+			lastErr = err
+			if !sleepUntilNextPoll(deadline) {
+				break
+			}
+			continue
+		}
+		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
+			return nil, err
+		}
+		health, err := healthCheck(inst, probeTimeoutMs(deadline))
+		if err == nil {
+			return health, nil
+		}
+		if flagIgnoreVersionMismatch && errors.Is(err, client.ErrHealthEndpointUnavailable) {
+			return inst, nil
+		}
+		lastErr = err
+		if !sleepUntilNextPoll(deadline) {
+			break
+		}
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("timed out waiting for Unity listener: %v", lastErr)
+	}
+	return nil, fmt.Errorf("timed out waiting for Unity listener")
+}
+
+func sendWithRetry(resolve instanceResolver, command string, params interface{}, timeoutMs int) (*client.CommandResponse, error) {
+	deadline := commandDeadline(timeoutMs)
+	var lastErr error
+	for {
+		inst, err := resolve()
+		if err != nil {
+			lastErr = err
+			if !sleepUntilNextPoll(deadline) {
+				break
+			}
+			continue
+		}
+		if err := checkConnectorVersion(inst, Version, flagIgnoreVersionMismatch); err != nil {
+			return nil, err
+		}
+		health, err := healthCheck(inst, probeTimeoutMs(deadline))
+		if err != nil {
+			if flagIgnoreVersionMismatch && errors.Is(err, client.ErrHealthEndpointUnavailable) {
+				resp, sendErr := sendCommand(inst, command, params, commandTimeoutMs(deadline))
+				if sendErr == nil {
+					return resp, nil
+				}
+				return nil, fmt.Errorf("failed sending command to Unity: %v", sendErr)
+			}
+			lastErr = err
+			if !sleepUntilNextPoll(deadline) {
+				break
+			}
+			continue
+		}
+		if err := checkConnectorVersion(health, Version, flagIgnoreVersionMismatch); err != nil {
+			return nil, err
+		}
+		resp, err := sendCommand(health, command, params, commandTimeoutMs(deadline))
+		if err == nil {
+			return resp, nil
+		}
+		return nil, fmt.Errorf("failed sending command to Unity: %v", err)
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("timed out sending command to Unity: %v", lastErr)
+	}
+	return nil, fmt.Errorf("timed out sending command to Unity")
+}
+
+func commandDeadline(timeoutMs int) time.Time {
+	if timeoutMs <= 0 {
+		timeoutMs = 120000
+	}
+	return time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+}
+
+func probeTimeoutMs(deadline time.Time) int {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 1
+	}
+	if remaining > time.Second {
+		return 1000
+	}
+	ms := int(remaining / time.Millisecond)
+	if ms < 1 {
+		return 1
+	}
+	return ms
+}
+
+func commandTimeoutMs(deadline time.Time) int {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 1
+	}
+	ms := int(remaining / time.Millisecond)
+	if ms < 1 {
+		return 1
+	}
+	return ms
+}
+
+func sleepUntilNextPoll(deadline time.Time) bool {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return false
+	}
+	sleep := statusPollInterval
+	if remaining < sleep {
+		sleep = remaining
+	}
+	time.Sleep(sleep)
+	return time.Now().Before(deadline)
+}
 
 func printResponse(resp *client.CommandResponse) {
 	if !resp.Success {
@@ -268,6 +379,16 @@ func buildParams(args []string, base map[string]interface{}) (map[string]interfa
 	return params, nil
 }
 
+func rejectRemovedFlags(args []string) error {
+	for _, arg := range args {
+		if arg == "--port" || strings.HasPrefix(arg, "--port=") {
+			return fmt.Errorf("--port was removed; select Unity by project path with --project")
+		}
+	}
+
+	return nil
+}
+
 // readStdinIfPiped reads stdin when piped and prepends it as the first positional arg.
 func readStdinIfPiped(args []string) []string {
 	info, err := os.Stdin.Stat()
@@ -292,7 +413,9 @@ func splitArgs(args []string) (flags, commands []string) {
 		switch args[i] {
 		case "--ignore-version-mismatch":
 			flags = append(flags, args[i])
-		case "--port", "--project", "--timeout":
+		case "--ignore-version-mismatch=true", "--ignore-version-mismatch=false":
+			flags = append(flags, args[i])
+		case "--project", "--timeout":
 			flags = append(flags, args[i])
 			if i+1 < len(args) {
 				i++
@@ -387,17 +510,15 @@ Update:
   update --check                Check for updates without installing
 
 Global Options:
-  --port <N>          Select Unity instance by active heartbeat port
   --project <path>    Select Unity instance by project path
   --timeout <ms>      Request timeout in ms (default: 120000)
   --ignore-version-mismatch
-                      Run even when CLI and connector versions differ
-
+                      Skip CLI/connector version check
 Use "unity-cli <command> --help" for more information about a command.
 
 Notes:
   - Unity must be open with the Connector package installed
-  - Multiple Unity instances: use --port or --project to select
+  - Multiple Unity instances: use --project to select
   - Custom tools: any [UnityCliTool] class is auto-discovered
   - Run 'list' to see all available tools
 `)
@@ -582,7 +703,7 @@ Example:
 	case "status":
 		fmt.Print(`Usage: unity-cli status
 
-Show the current Unity Editor state: port, project path, version, PID.
+Show the current Unity Editor state: project path, version, PID.
 Reports "not responding" if heartbeat is older than 3 seconds.
 
 Example:

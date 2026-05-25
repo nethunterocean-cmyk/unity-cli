@@ -31,6 +31,9 @@ namespace UnityCliConnector.TestRunner
 
             [ToolParameter("Save dirty open scenes before running tests")]
             public bool AutoSaveScenes { get; set; }
+
+            [ToolParameter("CLI-generated test run identifier")]
+            public string RunId { get; set; }
         }
 
         public static Task<object> HandleCommand(JObject @params)
@@ -63,8 +66,9 @@ namespace UnityCliConnector.TestRunner
             if (testMode == TestMode.EditMode)
                 return ExecuteInProcess(testMode, filter);
 
-            StartPlayModeRun(filter);
-            return Task.FromResult<object>(new SuccessResponse("running", new { port = HttpServer.Port }));
+            var runId = p.Get("runId", Guid.NewGuid().ToString("N"));
+            StartPlayModeRun(filter, runId);
+            return Task.FromResult<object>(new SuccessResponse("running", new { runId }));
         }
 
         private static Task<object> ExecuteInProcess(TestMode mode, string filter)
@@ -90,12 +94,10 @@ namespace UnityCliConnector.TestRunner
             return tcs.Task;
         }
 
-        private static void StartPlayModeRun(string filter)
+        private static void StartPlayModeRun(string filter, string runId)
         {
-            var port = HttpServer.Port;
-
-            try { var f = ResultsFilePath(port); if (File.Exists(f)) File.Delete(f); } catch { }
-            TestRunnerState.MarkPending(port, filter);
+            try { var f = ResultsFilePath(runId); if (File.Exists(f)) File.Delete(f); } catch { }
+            TestRunnerState.MarkPending(runId, filter);
 
             var passed  = new List<string>();
             var failed  = new List<string>();
@@ -107,8 +109,8 @@ namespace UnityCliConnector.TestRunner
                 onFinished: _ =>
                 {
                     Object.DestroyImmediate(api);
-                    TestRunnerState.ClearPending(port);
-                    WriteResultsFile(port, passed, failed, skipped);
+                    TestRunnerState.ClearPending(runId);
+                    WriteResultsFile(runId, passed, failed, skipped);
                 }
             );
 
@@ -182,7 +184,7 @@ namespace UnityCliConnector.TestRunner
             }
         }
 
-        internal static void WriteResultsFile(int port, List<string> passed, List<string> failed, List<string> skipped)
+        internal static void WriteResultsFile(string runId, List<string> passed, List<string> failed, List<string> skipped)
         {
             var data = new
             {
@@ -204,7 +206,7 @@ namespace UnityCliConnector.TestRunner
             try
             {
                 Directory.CreateDirectory(StatusDir);
-                File.WriteAllText(ResultsFilePath(port), JsonConvert.SerializeObject(data));
+                File.WriteAllText(ResultsFilePath(runId), JsonConvert.SerializeObject(data));
             }
             catch (Exception ex)
             {
@@ -212,8 +214,8 @@ namespace UnityCliConnector.TestRunner
             }
         }
 
-        internal static string ResultsFilePath(int port) =>
-            Path.Combine(StatusDir, $"test-results-{port}.json");
+        internal static string ResultsFilePath(string runId) =>
+            Path.Combine(StatusDir, $"test-results-{runId}.json");
 
         internal static object BuildResponse(List<string> passed, List<string> failed, List<string> skipped)
         {
