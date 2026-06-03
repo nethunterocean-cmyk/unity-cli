@@ -4,10 +4,8 @@ using System.IO;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using UnityEditor.SceneManagement;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
 
 namespace UnityCliConnector.TestRunner
@@ -25,12 +23,6 @@ namespace UnityCliConnector.TestRunner
 
             [ToolParameter("Filter by namespace, class, or full test name")]
             public string Filter { get; set; }
-
-            [ToolParameter("Run tests even when open scenes have unsaved changes")]
-            public bool AllowDirtyScenes { get; set; }
-
-            [ToolParameter("Save dirty open scenes before running tests")]
-            public bool AutoSaveScenes { get; set; }
 
             [ToolParameter("CLI-generated test run identifier")]
             public string RunId { get; set; }
@@ -57,11 +49,6 @@ namespace UnityCliConnector.TestRunner
                 return Task.FromResult<object>(new ErrorResponse($"Unknown mode '{modeStr}'. Use EditMode or PlayMode."));
 
             var filter = p.Get("filter", null);
-            var dirtySceneResult = PrepareDirtyScenes(
-                p.GetBool("allowDirtyScenes") || p.GetBool("allow_dirty_scenes"),
-                p.GetBool("autoSaveScenes") || p.GetBool("auto_save_scenes"));
-            if (dirtySceneResult != null)
-                return Task.FromResult<object>(dirtySceneResult);
 
             if (testMode == TestMode.EditMode)
                 return ExecuteInProcess(testMode, filter);
@@ -116,57 +103,6 @@ namespace UnityCliConnector.TestRunner
 
             api.RegisterCallbacks(callbacks);
             api.Execute(new ExecutionSettings(BuildFilter(TestMode.PlayMode, filter)));
-        }
-
-        private static object PrepareDirtyScenes(bool allowDirtyScenes, bool autoSaveScenes)
-        {
-            var dirtyScenes = GetDirtyOpenScenes();
-            if (dirtyScenes.Count == 0)
-                return null;
-
-            if (autoSaveScenes)
-            {
-                foreach (var scene in dirtyScenes)
-                {
-                    if (string.IsNullOrEmpty(scene.path))
-                        return DirtyScenesBlockedResponse(new List<string> { scene.name });
-                    if (!EditorSceneManager.SaveScene(scene))
-                        return DirtyScenesBlockedResponse(new List<string> { scene.path });
-                }
-                return null;
-            }
-
-            if (allowDirtyScenes)
-                return null;
-
-            var paths = new List<string>();
-            foreach (var scene in dirtyScenes)
-                paths.Add(string.IsNullOrEmpty(scene.path) ? scene.name : scene.path);
-
-            return DirtyScenesBlockedResponse(paths);
-        }
-
-        private static List<Scene> GetDirtyOpenScenes()
-        {
-            var scenes = new List<Scene>();
-            for (var i = 0; i < SceneManager.sceneCount; i++)
-            {
-                var scene = SceneManager.GetSceneAt(i);
-                if (scene.isDirty)
-                    scenes.Add(scene);
-            }
-            return scenes;
-        }
-
-        private static ErrorResponse DirtyScenesBlockedResponse(List<string> scenes)
-        {
-            const string message = "Open scenes have unsaved changes. Save or discard them before running tests.";
-            return new ErrorResponse(message, new
-            {
-                blocked = "dirty-scenes",
-                message,
-                scenes,
-            });
         }
 
         // --- Shared helpers (used by TestRunnerState after domain reload) ---

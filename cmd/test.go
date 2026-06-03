@@ -46,12 +46,6 @@ func testCmd(args []string, send sendFn, resolve instanceResolver) (*client.Comm
 	if filter, ok := flags["filter"]; ok {
 		params["filter"] = filter
 	}
-	if _, ok := flags["allow-dirty-scenes"]; ok {
-		params["allowDirtyScenes"] = true
-	}
-	if _, ok := flags["auto-save-scenes"]; ok {
-		params["autoSaveScenes"] = true
-	}
 
 	resp, err := send("run_tests", params)
 	if err != nil {

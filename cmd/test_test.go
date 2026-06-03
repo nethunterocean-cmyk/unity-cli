@@ -12,7 +12,7 @@ import (
 	"github.com/youngwoocho02/unity-cli/internal/client"
 )
 
-func TestTestCmd_ForwardsDirtySceneOptions(t *testing.T) {
+func TestTestCmd_SendsDefaultRunParameters(t *testing.T) {
 	var captured map[string]interface{}
 	send := func(cmd string, params interface{}) (*client.CommandResponse, error) {
 		if cmd != "run_tests" {
@@ -26,18 +26,15 @@ func TestTestCmd_ForwardsDirtySceneOptions(t *testing.T) {
 		return &client.CommandResponse{Success: true}, nil
 	}
 
-	resp, err := testCmd([]string{"--allow-dirty-scenes", "--auto-save-scenes"}, send, nil)
+	resp, err := testCmd([]string{}, send, nil)
 	if err != nil {
 		t.Fatalf("testCmd returned error: %v", err)
 	}
 	if resp == nil || !resp.Success {
 		t.Fatalf("testCmd response = %#v, want success", resp)
 	}
-	if captured["allowDirtyScenes"] != true {
-		t.Errorf("allowDirtyScenes = %v, want true", captured["allowDirtyScenes"])
-	}
-	if captured["autoSaveScenes"] != true {
-		t.Errorf("autoSaveScenes = %v, want true", captured["autoSaveScenes"])
+	if captured["mode"] != "EditMode" {
+		t.Errorf("mode = %v, want EditMode", captured["mode"])
 	}
 	if captured["runId"] == "" {
 		t.Error("runId should be sent")
