@@ -371,7 +371,7 @@ func TestSendWithRetryStopsOnVersionMismatchBeforeHealth(t *testing.T) {
 	origHealth := healthCheck
 	origSend := sendCommand
 	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.20"
+	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = false
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
 		t.Fatal("health should not be called on version mismatch")
@@ -400,7 +400,7 @@ func TestResolveReadyStopsOnVersionMismatchBeforeHealth(t *testing.T) {
 	origVersion := Version
 	origHealth := healthCheck
 	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.20"
+	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = false
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
 		t.Fatal("health should not be called on version mismatch")
@@ -424,7 +424,7 @@ func TestResolveReadyIgnoreVersionMismatchAllowsMissingHealthEndpoint(t *testing
 	origVersion := Version
 	origHealth := healthCheck
 	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.20"
+	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = true
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
 		return nil, client.ErrHealthEndpointUnavailable
@@ -450,7 +450,7 @@ func TestResolveReadyIgnoreVersionMismatchDoesNotHideHealthConnectionFailure(t *
 	origVersion := Version
 	origHealth := healthCheck
 	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.20"
+	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = true
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
 		return nil, errors.New("cannot reach Unity health endpoint")
@@ -477,7 +477,7 @@ func TestSendWithRetryIgnoreVersionMismatchAllowsMismatch(t *testing.T) {
 	origHealth := healthCheck
 	origSend := sendCommand
 	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.20"
+	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = true
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
 		return &client.Instance{ProjectPath: inst.ProjectPath, Port: inst.Port, Timestamp: 1000, PID: 1, ConnectorVersion: "0.3.19", Ready: true}, nil
@@ -509,7 +509,7 @@ func TestSendWithRetryIgnoreVersionMismatchSendsWhenHealthEndpointMissing(t *tes
 	origHealth := healthCheck
 	origSend := sendCommand
 	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.20"
+	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = true
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
 		return nil, client.ErrHealthEndpointUnavailable
@@ -544,7 +544,7 @@ func TestSendWithRetryIgnoreVersionMismatchDoesNotSendWhenHealthConnectionFails(
 	origHealth := healthCheck
 	origSend := sendCommand
 	origIgnore := flagIgnoreVersionMismatch
-	Version = "v0.3.20"
+	Version = "v0.3.21"
 	flagIgnoreVersionMismatch = true
 	healthCheck = func(inst *client.Instance, timeoutMs int) (*client.Instance, error) {
 		return nil, errors.New("cannot reach Unity health endpoint")
