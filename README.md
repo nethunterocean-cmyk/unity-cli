@@ -216,6 +216,8 @@ echo 'Debug.Log("hello"); return null;' | unity-cli exec
 echo 'var go = new GameObject("Marker"); go.tag = "EditorOnly"; return go.name;' | unity-cli exec
 ```
 
+`exec` blocks async, coroutine, and deferred Unity callback keywords by default because the command returns before those paths complete. Use `--allow-async` only when that delayed behavior is intentional.
+
 Because `exec` compiles and runs real C#, it can do anything a custom tool can — inspect ECS entities, modify assets, call internal APIs, run editor utilities. For AI agents, this means **zero-friction access to Unity's entire runtime** without writing a single line of tool code. Piping via stdin avoids shell escaping headaches with complex code.
 
 ### Menu Items

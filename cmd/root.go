@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,9 @@ func Execute() error {
 		subArgs = readStdinIfPiped(subArgs)
 		var params map[string]interface{}
 		params, err = buildParams(subArgs, nil)
+		if err == nil {
+			err = validateExecAsyncPolicy(params)
+		}
 		if err == nil {
 			resp, err = send("exec", params)
 		}
@@ -402,6 +406,63 @@ func normalizeUsings(values []string) []string {
 	return result
 }
 
+var execAsyncPatterns = []struct {
+	label string
+	re    *regexp.Regexp
+}{
+	{"async", regexp.MustCompile(`\basync\b`)},
+	{"await", regexp.MustCompile(`\bawait\b`)},
+	{"Task", regexp.MustCompile(`\b(?:Task|ValueTask|TaskCompletionSource)\b`)},
+	{"UniTask", regexp.MustCompile(`\bUniTask\b`)},
+	{"Awaitable", regexp.MustCompile(`\bAwaitable\b`)},
+	{"IAsync", regexp.MustCompile(`\bIAsync(?:Enumerable|Enumerator)\b`)},
+	{"Coroutine", regexp.MustCompile(`\b(?:Coroutine|StartCoroutine|EditorCoroutineUtility|WaitForSeconds|WaitUntil|WaitWhile)\b`)},
+	{"AsyncOperation", regexp.MustCompile(`\b(?:AsyncOperation|UnityWebRequestAsyncOperation)\b`)},
+	{"Unity async API", regexp.MustCompile(`\b(?:LoadSceneAsync|UnloadSceneAsync|LoadAsync|InstantiateAsync|AsyncGPUReadback)\b`)},
+	{"EditorApplication async callback", regexp.MustCompile(`\bEditorApplication\s*\.\s*(?:update|delayCall)\b`)},
+}
+
+func validateExecAsyncPolicy(params map[string]interface{}) error {
+	if allowExecAsync(params) {
+		delete(params, "allow-async")
+		return nil
+	}
+	delete(params, "allow-async")
+
+	code := execCodeFromParams(params)
+	for _, pattern := range execAsyncPatterns {
+		if pattern.re.MatchString(code) {
+			return fmt.Errorf("exec blocks async or deferred Unity code by default: found %s; rerun with --allow-async to allow it", pattern.label)
+		}
+	}
+
+	return nil
+}
+
+func allowExecAsync(params map[string]interface{}) bool {
+	v, ok := params["allow-async"]
+	if !ok {
+		return false
+	}
+	allowed, ok := v.(bool)
+	return ok && allowed
+}
+
+func execCodeFromParams(params map[string]interface{}) string {
+	if code, ok := params["code"].(string); ok {
+		return code
+	}
+	if args, ok := params["args"].([]string); ok && len(args) > 0 {
+		return args[0]
+	}
+	if args, ok := params["args"].([]interface{}); ok && len(args) > 0 {
+		if code, ok := args[0].(string); ok {
+			return code
+		}
+	}
+	return ""
+}
+
 func rejectRemovedFlags(args []string) error {
 	for _, arg := range args {
 		if arg == "--port" || strings.HasPrefix(arg, "--port=") {
@@ -599,6 +660,7 @@ Options:
   --usings <ns1,ns2>   Add extra using directives (comma-separated or repeatable)
   --csc <path>         Path to csc compiler (csc.dll or csc.exe). Auto-detected if omitted.
   --dotnet <path>      Path to dotnet runtime. Auto-detected if omitted.
+  --allow-async        Allow async/deferred Unity code. Blocked by default.
 
 Default usings: System, System.Collections.Generic, System.IO, System.Linq,
   System.Reflection, System.Threading.Tasks, UnityEngine,

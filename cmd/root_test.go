@@ -643,6 +643,54 @@ func TestBuildParams_BaseParams(t *testing.T) {
 	}
 }
 
+func TestValidateExecAsyncPolicy_BlocksPositionalAsyncCode(t *testing.T) {
+	params := map[string]interface{}{
+		"args": []string{"await Task.Delay(1); return null;"},
+	}
+
+	err := validateExecAsyncPolicy(params)
+	if err == nil {
+		t.Fatal("expected async code to be blocked")
+	}
+	if !strings.Contains(err.Error(), "--allow-async") {
+		t.Fatalf("expected allow flag hint, got %v", err)
+	}
+}
+
+func TestValidateExecAsyncPolicy_BlocksCodeParamAsyncCode(t *testing.T) {
+	params := map[string]interface{}{
+		"code": "EditorApplication.delayCall += () => Debug.Log(\"later\"); return null;",
+	}
+
+	if err := validateExecAsyncPolicy(params); err == nil {
+		t.Fatal("expected deferred Unity callback to be blocked")
+	}
+}
+
+func TestValidateExecAsyncPolicy_AllowsAsyncWithFlagAndRemovesParam(t *testing.T) {
+	params := map[string]interface{}{
+		"args":        []string{"await Task.Delay(1); return null;"},
+		"allow-async": true,
+	}
+
+	if err := validateExecAsyncPolicy(params); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, exists := params["allow-async"]; exists {
+		t.Fatal("allow-async should not be sent to Unity")
+	}
+}
+
+func TestValidateExecAsyncPolicy_AllowsSynchronousCode(t *testing.T) {
+	params := map[string]interface{}{
+		"args": []string{"return UnityEngine.Time.time;"},
+	}
+
+	if err := validateExecAsyncPolicy(params); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func sliceEqual(a, b []string) bool {
 	if len(a) == 0 && len(b) == 0 {
 		return true

@@ -216,6 +216,8 @@ echo 'Debug.Log("hello"); return null;' | unity-cli exec
 echo 'var go = new GameObject("Marker"); go.tag = "EditorOnly"; return go.name;' | unity-cli exec
 ```
 
+`exec`는 기본적으로 async, coroutine, Unity 지연 콜백 키워드를 차단한다. 명령이 반환된 뒤 실행되는 동작이 의도된 경우에만 `--allow-async`를 사용한다.
+
 `exec`는 실제 C#을 컴파일하고 실행하므로, 커스텀 도구가 할 수 있는 모든 것을 할 수 있습니다 — ECS 엔티티 조사, 에셋 수정, 내부 API 호출, 에디터 유틸리티 실행. AI 에이전트에게 이것은 **도구 코드를 한 줄도 작성하지 않고 Unity 전체 런타임에 즉시 접근**할 수 있다는 의미입니다. stdin 파이프를 사용하면 복잡한 코드에서 shell escaping 문제를 피할 수 있습니다.
 
 ### 메뉴 아이템
