@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/nethunterocean-cmyk/unity-cli/internal/client"
 )
 
 func TestEditorCmd_Play(t *testing.T) {

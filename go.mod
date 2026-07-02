@@ -1,3 +1,3 @@
-module github.com/youngwoocho02/unity-cli
+module github.com/nethunterocean-cmyk/unity-cli
 
 go 1.24.3

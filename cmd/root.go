@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/nethunterocean-cmyk/unity-cli/internal/client"
 )
 
 var Version = "dev"
@@ -68,11 +68,8 @@ func Execute() error {
 	case "version", "--version", "-v":
 		fmt.Println("unity-cli " + Version)
 		return nil
-	case "update":
-		return updateCmd(subArgs)
 	case "status":
 		statusErr := statusCmd(flagProject, flagIgnoreVersionMismatch)
-		printUpdateNotice()
 		return statusErr
 	}
 
@@ -133,8 +130,6 @@ func Execute() error {
 	}
 
 	printResponse(resp)
-
-	printUpdateNotice()
 
 	if !resp.Success {
 		os.Exit(1)
@@ -587,10 +582,6 @@ Custom Tools:
 Status:
   status                        Show Unity Editor state (ready, compiling, etc.)
 
-Update:
-  update                        Update to the latest version
-  update --check                Check for updates without installing
-
 Global Options:
   --project <path>    Select Unity instance by project path
   --timeout <ms>      Request timeout in ms (default: 120000)
@@ -789,18 +780,7 @@ Reports "not responding" if heartbeat is older than 3 seconds.
 Example:
   unity-cli status
 `)
-	case "update":
-		fmt.Print(`Usage: unity-cli update [options]
 
-Update the CLI binary to the latest release from GitHub.
-
-Options:
-  --check              Check for updates without installing
-
-Examples:
-  unity-cli update
-  unity-cli update --check
-`)
 	case "custom-tools", "custom", "tools":
 		fmt.Print(`How to write custom tools for unity-cli
 
@@ -843,20 +823,14 @@ Rules:
 	case "setup", "install":
 		fmt.Print(`Installation and Unity setup
 
-CLI Installation:
-  # Linux / macOS
-  curl -fsSL https://raw.githubusercontent.com/youngwoocho02/unity-cli/master/install.sh | sh
+Pre-built binary downloads and UPM git URL installs have been removed for security.
+Build from source:
 
-  # Windows (PowerShell)
-  irm https://raw.githubusercontent.com/youngwoocho02/unity-cli/master/install.ps1 | iex
-
-  # Go install (any platform)
-  go install github.com/youngwoocho02/unity-cli@latest
-
-Unity Setup:
-  1. Window → Package Manager → + → Add package from git URL
-  2. Paste: https://github.com/youngwoocho02/unity-cli.git?path=unity-connector
-  The Connector starts automatically when Unity opens.
+  1. git clone https://github.com/nethunterocean-cmyk/unity-cli
+  2. cd unity-cli
+  3. go build -o unity-cli .
+  4. sudo mv unity-cli /usr/local/bin/
+  5. Copy Assets/NZK toolkit v4/UnityCliConnector/ into your Unity project
 
 Verify:
   unity-cli list

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/youngwoocho02/unity-cli/internal/client"
+	"github.com/nethunterocean-cmyk/unity-cli/internal/client"
 )
 
 func mockSend(wantCmd string, t *testing.T) (sendFn, *map[string]interface{}) {

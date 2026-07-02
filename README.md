@@ -8,72 +8,8 @@
 
 **No server to run. No config to write. No process to manage. Just type a command.**
 
-## Why this exists
-
-I wanted to control Unity from the terminal. The existing MCP-based integrations required Python runtimes, WebSocket relays, JSON-RPC protocol layers, config files, server processes that need to be started and stopped, tool registration ceremonies, and tens of thousands of lines of over-engineered code. All just to send a simple command to Unity.
-
-On top of that, every AI agent that wanted to use it needed its own MCP config and integration setup. The CLI doesn't care — any agent that can run a shell command can use it immediately.
-
-That felt wrong. If I can `curl` a URL, why do I need all that?
-
-So I built the opposite: a single binary that talks directly to Unity via HTTP. No server to run — the Unity package listens automatically. No config to write — it discovers Unity instances on its own. No tool registration — just call by name. No caching, no protocol layers, no ceremony.
-
-The entire CLI is ~800 lines of Go (plus ~300 lines of help text). The Unity-side connector is ~2,300 lines of C#. It's just a thin layer that lets you control Unity from the shell — nothing more. You install the binary, add the Unity package, and it works.
-
-## Install
-
-### Linux / macOS
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/youngwoocho02/unity-cli/master/install.sh | sh
-```
-
-### Windows (PowerShell)
-
-```powershell
-irm https://raw.githubusercontent.com/youngwoocho02/unity-cli/master/install.ps1 | iex
-```
-
-### Other options
-
-```bash
-# Go install (any platform with Go)
-go install github.com/youngwoocho02/unity-cli@latest
-
-# Manual download (pick your platform)
-# Linux amd64 / Linux arm64 / macOS amd64 / macOS arm64 / Windows amd64
-curl -fsSL https://github.com/youngwoocho02/unity-cli/releases/latest/download/unity-cli-linux-amd64 -o unity-cli
-chmod +x unity-cli && sudo mv unity-cli /usr/local/bin/
-```
-
-Supported platforms: Linux (amd64, arm64), macOS (Intel, Apple Silicon), Windows (amd64).
-
-### Update
-
-```bash
-# Update to the latest version
-unity-cli update
-
-# Check for updates without installing
-unity-cli update --check
-```
-
-## Unity Setup
-
-Add the Unity Connector package via **Package Manager → Add package from git URL**:
-
-```
-https://github.com/youngwoocho02/unity-cli.git?path=unity-connector
-```
-
-Or add directly to `Packages/manifest.json`:
-```json
-"com.youngwoocho02.unity-cli-connector": "https://github.com/youngwoocho02/unity-cli.git?path=unity-connector"
-```
-
-To pin a specific version, append a tag to the URL (e.g. `#v0.2.21`).
-
-Once added, the Connector starts automatically when Unity opens. No configuration needed.
+> **🔒 Security fork:** All auto-update and version-check functionality has been removed for security.
+> Find the original with auto-updating at [youngwoocho02/unity-cli](https://github.com/youngwoocho02/unity-cli).
 
 ### Recommended: Disable Editor Throttling
 
@@ -153,7 +89,7 @@ Before compiling or reloading, the Connector records the state (`compiling`, `re
 | `profiler` | Read profiler hierarchy, control recording |
 | `list` | Show all available tools with parameter schemas |
 | `status` | Show Unity Editor connection state |
-| `update` | Self-update the CLI binary |
+| `update` | Self-update — disabled in this fork for security |
 
 ### Editor Control
 
