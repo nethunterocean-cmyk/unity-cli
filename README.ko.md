@@ -8,72 +8,18 @@
 
 **서버 실행 없음. 설정 파일 없음. 프로세스 관리 없음. 명령어만 치면 됩니다.**
 
-## 왜 만들었나
-
-터미널에서 Unity를 제어하고 싶었습니다. 기존 MCP 기반 연동은 Python 런타임, WebSocket 릴레이, JSON-RPC 프로토콜 레이어, 설정 파일, 켜고 꺼야 하는 서버 프로세스, 도구 등록 절차, 수만 줄의 과잉 설계된 코드를 요구했습니다. 단순한 명령 하나 보내는 데 이 모든 게 필요했습니다.
-
-게다가 AI 에이전트마다 MCP 설정과 연동을 따로 해줘야 했습니다. CLI는 그런 게 없습니다 — 셸 명령어를 실행할 수 있는 에이전트라면 바로 쓸 수 있습니다.
-
-이상하다고 느꼈습니다. `curl`로 URL 하나 쏠 수 있는데, 왜 그 모든 게 필요한가?
-
-그래서 정반대로 만들었습니다. Unity에 HTTP로 직접 통신하는 바이너리 하나. 서버를 띄울 필요 없이 — Unity 패키지가 자동으로 수신합니다. 설정 파일 없이 — Unity 인스턴스를 알아서 찾습니다. 도구 등록 없이 — 이름으로 바로 호출합니다. 캐싱도, 프로토콜 레이어도, 절차도 없습니다.
-
-CLI 전체가 Go ~800줄(+ help text ~300줄), Unity 커넥터가 C# ~2,300줄입니다. 셸에서 Unity를 다루게 해주는 아주 얇은 레이어 — 그 본분에 충실합니다. 바이너리 설치하고, Unity 패키지 추가하면 끝입니다.
-
-## 설치
-
-### Linux / macOS
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/youngwoocho02/unity-cli/master/install.sh | sh
-```
-
-### Windows (PowerShell)
-
-```powershell
-irm https://raw.githubusercontent.com/youngwoocho02/unity-cli/master/install.ps1 | iex
-```
-
-### 기타 방법
-
-```bash
-# Go install (Go가 설치된 모든 플랫폼)
-go install github.com/youngwoocho02/unity-cli@latest
-
-# 수동 다운로드 (플랫폼 선택)
-# Linux amd64 / Linux arm64 / macOS amd64 / macOS arm64 / Windows amd64
-curl -fsSL https://github.com/youngwoocho02/unity-cli/releases/latest/download/unity-cli-linux-amd64 -o unity-cli
-chmod +x unity-cli && sudo mv unity-cli /usr/local/bin/
-```
-
-지원 플랫폼: Linux (amd64, arm64), macOS (Intel, Apple Silicon), Windows (amd64).
-
-### 업데이트
-
-```bash
-# 최신 버전으로 자동 업데이트
-unity-cli update
-
-# 새 버전 확인만
-unity-cli update --check
-```
+> **🔒 보안 포크:** 자동 업데이트 및 버전 확인 기능이 보안상 제거되었습니다.
+> 자동 업데이트가 있는 원본은 [youngwoocho02/unity-cli](https://github.com/youngwoocho02/unity-cli)에서 찾을 수 있습니다.
 
 ## Unity 설정
 
-**Package Manager → Add package from git URL**에서 추가:
+`UnityFiles/` 폴더를 Unity 프로젝트의 `Assets/` 디렉토리로 복사하세요:
 
-```
-https://github.com/youngwoocho02/unity-cli.git?path=unity-connector
-```
-
-또는 `Packages/manifest.json`에 직접 추가:
-```json
-"com.youngwoocho02.unity-cli-connector": "https://github.com/youngwoocho02/unity-cli.git?path=unity-connector"
+```bash
+cp -r UnityFiles /path/to/YourUnityProject/Assets/
 ```
 
-특정 버전을 고정하려면 URL 끝에 태그를 추가하세요 (예: `#v0.2.21`).
-
-추가 후 Unity를 열면 커넥터가 자동으로 시작됩니다. 별도 설정 불필요.
+커넥터는 Unity가 열릴 때 자동으로 시작됩니다. 별도 설정이 필요하지 않습니다.
 
 ### 권장: Editor 쓰로틀링 비활성화
 
@@ -153,7 +99,7 @@ Unity 커넥터의 동작:
 | `profiler` | 프로파일러 하이어라키 읽기, 녹화 제어 |
 | `list` | 사용 가능한 모든 도구와 파라미터 스키마 표시 |
 | `status` | Unity Editor 연결 상태 확인 |
-| `update` | CLI 바이너리 자동 업데이트 |
+| `update` | 자동 업데이트 — 보안상 비활성화됨 |
 
 ### Editor 제어
 
@@ -477,7 +423,8 @@ unity-cli editor play
 **DevBookOfArray**
 
 [![YouTube](https://img.shields.io/badge/YouTube-DevBookOfArray-red?logo=youtube&logoColor=white)](https://www.youtube.com/@DevBookOfArray)
-[![GitHub](https://img.shields.io/badge/GitHub-youngwoocho02-181717?logo=github)](https://github.com/youngwoocho02)
+[![GitHub](https://img.shields.io/badge/GitHub-youngwoocho02-181717?logo=github)](https://github.com/youngwoocho02) (original)
+[![GitHub](https://img.shields.io/badge/GitHub-nethunterocean--cmyk-181717?logo=github)](https://github.com/nethunterocean-cmyk/unity-cli) (security fork)
 
 ## 라이선스
 
