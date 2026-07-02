@@ -11,6 +11,17 @@
 > **🔒 보안 포크:** 자동 업데이트 및 버전 확인 기능이 보안상 제거되었습니다.
 > 자동 업데이트가 있는 원본은 [youngwoocho02/unity-cli](https://github.com/youngwoocho02/unity-cli)에서 찾을 수 있습니다.
 
+## 빌드 (CLI)
+
+```bash
+git clone https://github.com/nethunterocean-cmyk/unity-cli
+cd unity-cli
+go build -o unity-cli .
+sudo mv unity-cli /usr/local/bin/
+```
+
+[Go](https://go.dev/dl/) 1.24+ 필요. 다른 의존성 없음.
+
 ## Unity 설정
 
 `UnityFiles/` 폴더를 Unity 프로젝트의 `Assets/` 디렉토리로 복사하세요:
