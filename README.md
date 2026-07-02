@@ -11,6 +11,16 @@
 > **🔒 Security fork:** All auto-update and version-check functionality has been removed for security.
 > Find the original with auto-updating at [youngwoocho02/unity-cli](https://github.com/youngwoocho02/unity-cli).
 
+## Unity Setup
+
+Copy the `UnityFiles/` folder into your Unity project's `Assets/` directory:
+
+```bash
+cp -r UnityFiles /path/to/YourUnityProject/Assets/
+```
+
+The Connector starts automatically when Unity opens. No configuration needed.
+
 ### Recommended: Disable Editor Throttling
 
 By default, Unity throttles editor updates when the window is unfocused. This can delay CLI commands because Unity API work is dispatched on the Editor main thread.
